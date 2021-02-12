@@ -1,0 +1,131 @@
+Packet structure 
+
+packet structure changes based on msg_type
+
++---------------------------+
+|      msg_type == 0        |
+|        (2 Octets)         |
++---------------------------+
+|          level   			|
+|        (4 Octets)         |
++---------------------------+
+|         category 			|
+|        (32 Octets)        |
++---------------------------+
+|        process id         |
+|        (4 Octets)         |
++---------------------------+
+|           tgid            |
+|        (4 Octets)         |
++---------------------------+
+|         procname          |
+|        (16 Octets)        |
++---------------------------+
+|        threadname         |
+|        (16 Octets)        |
++---------------------------+
+| class_name or source file |
+|        (32 Octets)        |
++---------------------------+
+|  method or function name  |
+|        (32 Octets)        |
++---------------------------+
+|       line number         |
+|        (4 Octets)         |
++---------------------------+
+|      sequence number      |
+|        (4 Octets)         |
++---------------------------+
+|         debugtext         |
+|        ( x Octets)        |
+.                           .
+.                           .
++---------------------------+
+|           null            |
+|        (1 Octets)         |
++---------------------------+
+
+
++---------------------------+
+|      msg_type == 1        |
+|        (2 Octets)         |
++---------------------------+
+|          level   			|
+|        (4 Octets)         |
++---------------------------+
+|         category 			|
+|        (32 Octets)        |
++---------------------------+
+|          src_ip           |
+|        (16 Octets)        |
++---------------------------+
+|         src_port          |
+|        (2 Octets)         |
++---------------------------+
+|          dst_ip           |
+|        (16 Octets)        |
++---------------------------+
+|         dst_port          |
+|        (2 Octets)         |
++---------------------------+
+|         <ignore>          |
+|        (76 Octets)        |
++---------------------------+
+|        sip package        |
+|        ( x Octets)        |
+.                           .
+.                           .
++---------------------------+
+|           null            |
+|        (1 Octets)         |
++---------------------------+
+
+
+
+﻿Each package starts with a message header followed by the payload and a 0 byte.
+
+The message header currently has a fixed width of 150 bytes. 
+
+For the future the length of the header might change based on the msg_type.
+(This will allow for less waste compared to the fix length)
+
+Whenever the content structure of the message or length of header is changed 
+a new msg_type will be used.
+
+Literals for displaying level are
+level_name = {
+  [0] = "Off",
+  [1] = "Error",
+  [2] = "Warning",
+  [3] = "Info",
+  [4] = "Debug",
+  [5] = "EDebug"
+}
+
+The Offset in comments is just for convenience for writing wireshark dissectors
+
+struct message_hdr {
+    uint16_t msg_type;              // Offset 0
+    uint32_t level;                 // Offset 2
+    char     category[32];          // Offset 6
+  union {                           // New Offsetbase 38
+    struct {                    // if msg_type == 0
+      int32_t  pid;                 // Offset 38
+      int32_t  tgid;                // Offset 42
+      char     procname[16];        // Offset 46
+      char     threadname[16];      // Offset 62
+      char     class_name[32];      // Offset 78
+      char     method[32];          // Offset 110
+      uint32_t lineno;              // Offset 142
+      uint32_t seqno;               // Offset 146
+    };
+    struct {                    // if msg_type == 1
+      char     src_ip[16];          // Offset 38
+      uint16_t src_port;            // Offset 54
+      char     dst_ip[16];          // Offset 56
+      uint16_t dst_port;            // Offset 72
+    };
+  };
+} __attribute__((packed));		// Total 150
+
+
