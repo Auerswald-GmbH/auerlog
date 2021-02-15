@@ -6,10 +6,10 @@ packet structure changes based on msg_type
 |      msg_type == 0        |
 |        (2 Octets)         |
 +---------------------------+
-|          level   			|
+|          level            |
 |        (4 Octets)         |
 +---------------------------+
-|         category 			|
+|         category          |
 |        (32 Octets)        |
 +---------------------------+
 |        process id         |
@@ -50,10 +50,10 @@ packet structure changes based on msg_type
 |      msg_type == 1        |
 |        (2 Octets)         |
 +---------------------------+
-|          level   			|
+|          level            |
 |        (4 Octets)         |
 +---------------------------+
-|         category 			|
+|         category          |
 |        (32 Octets)        |
 +---------------------------+
 |          src_ip           |
