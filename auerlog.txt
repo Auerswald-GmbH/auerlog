@@ -99,7 +99,8 @@ level_name = {
   [2] = "Warning",
   [3] = "Info",
   [4] = "Debug",
-  [5] = "EDebug"
+  [5] = "EDebug",
+  [6] = "XDebug"
 }
 
 The Offset in comments is just for convenience for writing wireshark dissectors
