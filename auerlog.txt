@@ -15,7 +15,7 @@ packet structure changes based on msg_type
 |        process id         |
 |        (4 Octets)         |
 +---------------------------+
-|           tgid            |
+|        thread id          |
 |        (4 Octets)         |
 +---------------------------+
 |         procname          |
@@ -92,6 +92,34 @@ For the future the length of the header might change based on the msg_type.
 Whenever the content structure of the message or length of header is changed 
 a new msg_type will be used.
 
+In what byte order are the numeric fields? 
+little-endian
+
+Is category just a string?
+yes, but there are only like a hundred plus values that can actually be in there, depending which categories were enabled for debugging/tracing.
+
+I assume procname, threadname, class_name or source file, and method_or_function_name are just 
+strings. 
+That is correct.
+
+To what do those strings correspond? 
+procname: internal name of the process
+threadname: name of a thread within the process, if it was named for clarity (can be frequently empty)
+method_or_func: Method (C++) or function (C) name
+Class_or_file: class name (C++) or Sourcecode file name (C) 
+Line: Source file line number where the logger was called
+tgid: UN*X/Windows thread ID for the process calling the logger, to be renamed to Thread id
+process id: UN*X/Windows process ID for the process calling the logger
+sequence number: Each time a log line is prepared internally the sequence number is increased. If a sequence number is missing, it is usually due to performance problems during logging.
+
+Most of those should not be interesting for anyone besides developers
+
+Does debugtext run to the end of a type 0 message, with Null being a terminating null character?
+Yes
+
+In a type 1 message, is sip package a Session Initiation Protocol message, with src_ip, src_port, dst_ip, and dst_port being the IP address and port from which it was sent and the IP address and port to which it was sent?
+Yes
+
 Literals for displaying level are
 level_name = {
   [0] = "Off",
@@ -106,13 +134,13 @@ level_name = {
 The Offset in comments is just for convenience for writing wireshark dissectors
 
 struct message_hdr {
-    uint16_t msg_type;              // Offset 0
-    uint32_t level;                 // Offset 2
-    char     category[32];          // Offset 6
+    uint16_t   msg_type;            // Offset 0
+    uint32_t   level;               // Offset 2
+    char       category[32];        // Offset 6
   union {                           // New Offsetbase 38
     struct {                    // if msg_type == 0
       int32_t  pid;                 // Offset 38
-      int32_t  tgid;                // Offset 42
+      int32_t  threadid;            // Offset 42
       char     procname[16];        // Offset 46
       char     threadname[16];      // Offset 62
       char     class_name[32];      // Offset 78
