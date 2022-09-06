@@ -82,7 +82,8 @@ packet structure changes based on msg_type
 
 
 
-﻿Each package starts with a message header followed by the payload and a 0 byte.
+﻿Each package starts with a message header followed by the payload and
+a 0 byte. 
 
 The message header currently has a fixed width of 150 bytes. 
 
@@ -92,69 +93,70 @@ For the future the length of the header might change based on the msg_type.
 Whenever the content structure of the message or length of header is changed 
 a new msg_type will be used.
 
-In what byte order are the numeric fields? 
-little-endian
+All multi-byte fields with integral vallues are little-endian.
 
-Is category just a string?
-yes, but there are only like a hundred plus values that can actually be in there, depending which categories were enabled for debugging/tracing.
+The msg_type field contains a value that is one of:
 
-I assume procname, threadname, class_name or source file, and method_or_function_name are just 
-strings. 
-That is correct.
+* 0, for a debug text message;
+* 1, for a SIP packet message.
 
-To what do those strings correspond? 
-procname: internal name of the process
-threadname: name of a thread within the process, if it was named for clarity (can be frequently empty)
-method_or_func: Method (C++) or function (C) name
-Class_or_file: class name (C++) or Sourcecode file name (C) 
-Line: Source file line number where the logger was called
-tgid: UN*X/Windows thread ID for the process calling the logger, to be renamed to Thread id
-process id: UN*X/Windows process ID for the process calling the logger
-sequence number: Each time a log line is prepared internally the sequence number is increased. If a sequence number is missing, it is usually due to performance problems during logging.
+The level field contains a value that is one of:
 
-Most of those should not be interesting for anyone besides developers
+* 0 = "Off";
+* 1 = "Error";
+* 2 = "Warning";
+* 3 = "Info";
+* 4 = "Debug";
+* 5 = "EDebug";
+* 6 = "XDebug".
 
-Does debugtext run to the end of a type 0 message, with Null being a terminating null character?
-Yes
+The cateory field is an ASCII string.
 
-In a type 1 message, is sip package a Session Initiation Protocol message, with src_ip, src_port, dst_ip, and dst_port being the IP address and port from which it was sent and the IP address and port to which it was sent?
-Yes
+In a debug text message:
 
-Literals for displaying level are
-level_name = {
-  [0] = "Off",
-  [1] = "Error",
-  [2] = "Warning",
-  [3] = "Info",
-  [4] = "Debug",
-  [5] = "EDebug",
-  [6] = "XDebug"
-}
+The process id field is the UN*X/Windows process ID of the process
+that is logging the message.
 
-The Offset in comments is just for convenience for writing wireshark dissectors
+The thread id field is the UN*X/Windows thread ID for the thread, within
+that process, that is logging the message.
 
-struct message_hdr {
-    uint16_t   msg_type;            // Offset 0
-    uint32_t   level;               // Offset 2
-    char       category[32];        // Offset 6
-  union {                           // New Offsetbase 38
-    struct {                    // if msg_type == 0
-      int32_t  pid;                 // Offset 38
-      int32_t  threadid;            // Offset 42
-      char     procname[16];        // Offset 46
-      char     threadname[16];      // Offset 62
-      char     class_name[32];      // Offset 78
-      char     method[32];          // Offset 110
-      uint32_t lineno;              // Offset 142
-      uint32_t seqno;               // Offset 146
-    };
-    struct {                    // if msg_type == 1
-      char     src_ip[16];          // Offset 38
-      uint16_t src_port;            // Offset 54
-      char     dst_ip[16];          // Offset 56
-      uint16_t dst_port;            // Offset 72
-    };
-  };
-} __attribute__((packed));		// Total 150
+The procname field is an ASCII string giving the internal name of the
+process indicated by the process id field.
 
+The threadname field is an ASCII string giving the name of the thread
+indicated by the thread id field, if it was was given a name for
+clarity; it is frequently empty.
 
+The class_name or source file field is an ASCII string giving the class
+name, for C++ code, or source code file name, for C code, of the code
+that is logging the message.
+
+The method or function name field is an ASCII string giving the method
+name, for C++ code, or function name, for C code, of the code that is
+logging the message.
+
+The line number field is the source file line number that is logging the
+message.
+
+The sequence number field is a number that is increased each time a log
+line is prpared internally.  If a sequence number is missing, it is
+usually due to performance problems during logging.
+
+The debugtext field is an ASCII string that runs to the end of the data,
+with a one-octet null byte at the end.
+
+In a SIP packet message:
+
+The src_ip field is the IPv6 address from which the SIP packet was sent.
+
+The src_port field is the port from which the SIP packet was sent.
+
+The dst_ip field is the IPv6 address of the host to which the SIP packet
+was sent.
+
+The dst_port is the port to which the SIP packet was sent.
+
+The <ignore> field is 76 octets of padding; they should be ignored.
+
+The SIP package field is the contents of the SIP packet.  It runs to the
+end of the data, with a one-octet null byte at the end.
