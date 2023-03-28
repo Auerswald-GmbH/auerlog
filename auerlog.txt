@@ -68,8 +68,20 @@ packet structure changes based on msg_type
 |         dst_port          |
 |        (2 Octets)         |
 +---------------------------+
+|        process id         |
+|        (4 Octets)         |
++---------------------------+
+|        thread id          |
+|        (4 Octets)         |
++---------------------------+
+|         procname          |
+|        (16 Octets)        |
++---------------------------+
+|        threadname         |
+|        (16 Octets)        |
++---------------------------+
 |         <ignore>          |
-|        (76 Octets)        |
+|        (36 Octets)        |
 +---------------------------+
 |        sip package        |
 |        ( x Octets)        |
