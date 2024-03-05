@@ -17,6 +17,8 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 --]]
 
+local shorten_msg     = 1
+
 local p_auerlog_legacy = Proto("auerlog_legacy","Auerswald Log Old");
 local p_auerlog = Proto("auerlog","Auerswald Log");
 
@@ -51,6 +53,8 @@ local MAX_STR_LEN = 160
 
 local c2t = {}
 local t2c = {}
+local c2i = {}
+local i2c = {}
 
 -- create the fields for our "protocol"
 local pfields = {
@@ -77,9 +81,14 @@ local pfields = {
   dst_ip = ProtoField.ipv4("ip.dst_addr","Destination", base.DEC, nil, "Destination Address", "none", nil, "ip.dst"),
   crv = ProtoField.string("auerlog.CRV","CRV"),
   task = ProtoField.string("auerlog.TASK","TASK"),
+  call_id = ProtoField.string("sip.Call-ID","Call-ID"),
   unused_srcip = ProtoField.none("auerlog.unused_srcip","Unused SrcIPv4"),
   unused_dstip = ProtoField.none("auerlog.unused_dstip","Unused DstIPv4"),
   unused_premsg = ProtoField.none("auerlog.unused","Unused")
+}
+
+local efields = {
+  sip_call_id = Field.new("sip.Call-ID")
 }
 
 -- add the field to the protocol
@@ -139,7 +148,14 @@ local function addIPTree(tree,ip_data)
     iptree:add(pfields["dst_ip6"],ip_data:range(20,16))
     tadd(iptree,"dst_port",ip_data:range(36,2),"uint")
   else
-  	iptree = tree:add(p_auerlog,ip_data:tvb(0,38),"Internet Protocol Version 4, Src: ,Dst: ")
+    -- local bin_ip = ip_data
+    -- local disp_src_ip = ""
+    -- local disp_dst_ip = ""
+    -- disp_src_ip = string.format("%u.%u.%u.%u",bin_ip(2):uint8(),bin_ip(3):uint8(),bin_ip(4):uint8(),bin_ip(5):uint8())
+    -- bin_ip = ip_data:range(20,4):string()
+    -- disp_dst_ip = string.format("%u.%u.%u.%u",string.byte(bin_ip,1),string.byte(bin_ip,2),string.byte(bin_ip,3),string.byte(bin_ip,4))
+  	-- iptree = tree:add(p_auerlog,ip_data:tvb(0,38),"Internet Protocol Version 4, Src:".. disp_src_ip .." ,Dst:" )
+    iptree = tree:add(p_auerlog,ip_data:tvb(0,38),"Internet Protocol Version 4, Src:".." ,Dst:")
 	tcptree = tree:add(p_auerlog,ip_data:tvb(0,38),"Transmission Control Protocol")
     iptree:add(pfields["ip_version"],ip_data(0,1))
 	iptree:add(pfields["ip_proto"],protocol):set_generated(true)
@@ -170,7 +186,7 @@ end
 function p_auerlog.dissector(buf,pinfo,tree)
   pinfo.cols.protocol = "AUERLOG"
   
-  local subtree = tree:add(p_auerlog,buf,"General Data")
+  local subtree = tree:add(p_auerlog,buf,"Data")
   subtree:set_len(buf:len())
   local sadd = function(fieldname,start,len,type)
     local data = buf(start,len)
@@ -185,13 +201,26 @@ function p_auerlog.dissector(buf,pinfo,tree)
   sadd("category",6,32) 
   
   local base = 38
+  
+  
 
   if (msg_type == MSG_TYPE_SIP) then
+    local crv
     addIPTree(tree,buf(base+0,38))
     addThreadData(subtree,buf(base+38,40))
     subtree:add(pfields["methodname"],"SIP"):set_generated(true)
     local sip_data = buf(msg_start,msg_len)
     addSIPTree(tree,sip_data,pinfo)
+    local call_id = efields.sip_call_id.list()    
+    print( "SIP-Call-ID: " .. tostring(call_id) )
+    if i2c[efields.call_id] then 
+      crv = i2c[efields.call_id]
+      subtree:add(pfields.crv,crv):set_generated(true)
+    end
+    if crv and c2t[crv] then
+      subtree:add(pfields.task,c2t[crv]):set_generated(true)
+    end
+
     return
   end
  
@@ -242,21 +271,80 @@ function p_auerlog.dissector(buf,pinfo,tree)
   end
 
   --check for "CRV[Oxabcd]:"
-  local crv_data = message:match(".*CRV%[{.*}%].*")
-  if crv_data then
-    subtree:add(pfields.crv,crv_data)    
+  local crv
+  local crv_pos = message:find("CRV%[.*%]") or -1
+  -- subtree:add(pfields["crv"],crv_pos):set_generated(true)
+  if crv_pos and crv_pos > 0 then
+    local crv_end = message:find("%]",crv_pos+4)
+    local crv_data = string.sub(message, crv_pos+4,crv_end-1)
+    crv = crv_data;
+    -- subtree:add(pfields["crv"],crv_pos ,crv_data ):set_generated(true)
+    sadd("crv",msg_start+crv_pos+3,crv_end-(crv_pos+4),"string")
+    if shorten_msg then
+      message = message:gsub("CRV%[..%x*]","",1)
+    end
   end
 
+  -- check for "TASK[Oxabc]:"
+  local task_data = message:match(".*TASK%[(..%x*)].*")
+  local task
+  if task_data then
+    if shorten_msg then
+      message = message:gsub("TASK%[..%x*]","",1)
+    end
+    subtree:add(pfields.task,task_data)
+    task = task_data
+    if crv then
+      c2t[crv] = task
+      t2c[task] = crv
+    else
+      if t2c[task] then
+        subtree:add(pfields.crv,t2c[task]):set_generated(true)
+      end
+    end
+  else
+    if crv and c2t[crv] then
+      subtree:add(pfields.task,c2t[crv]):set_generated(true)
+    end
+  end
+
+  -- check for call_id
+  local call_id = message:match(".*call_id%[(.-)%].*")
+  if call_id then
+    if crv then
+      c2i[crv] = call_id
+      i2c[call_id] = crv
+    else
+      if i2c[call_id] then 
+        subtree:add(pfields.crv,i2c[call_id]):set_generated(true)
+      end
+    end
+  else
+    if crv and c2i[crv] then
+      subtree:add(pfields.call_id,c2i[crv]):set_generated(true)
+    end
+  end
+
+  -- TODO if Category is RESIPROCATE scan Msg for all entries of Call_id in i2c 
+  --      if match is found set CRV and TASK accordingly
+
   -- remove redundant methodname from Msg
+  local replace_with
+  if shorten_msg then
+    replace_with = ""
+  else
+    replace_with = "(f)"
+  end
+
   if methodname:len() >= 3 then
-    message = message:gsub( "^" .. methodname .. ".%d+.","")
-    message = message:gsub( "^" .. methodname ,"")
-    message = message:gsub( methodname ,"(f)")
+    message = message:gsub( "" .. methodname .. "%(%d+%)[%s%:]+",replace_with)
+    message = message:gsub( "" .. methodname .. "[%s%:]?%d+%s",replace_with)
+    message = message:gsub( "" .. methodname .. "[%s%:]+",replace_with)
   end
 
   -- clean surplus junk at start of line
   message = message:gsub("^[ :]+","")
-
+  
   -- add remaining message fields
   local infoline=""
   local cnt=0
@@ -299,6 +387,7 @@ function p_auerlog_legacy.dissector(buf,pinfo,tree)
     subtree:add(pfields["methodname"],"SIP")
     local sip_data = buf(msg_start,msg_len)
     addSIPTree(tree,sip_data,pinfo)
+    -- TODO set crv by Call-ID and TASK by CRV
     return
   end
  
@@ -348,13 +437,17 @@ function p_auerlog_legacy.dissector(buf,pinfo,tree)
     end
   end
 
-  -- check for "CRV[Oxabcd]:"
-  local crv_data = message:match(".*CRV%[(..%x*)].*")
+  --check for "CRV[Oxabcd]:"
   local crv
-  if crv_data then
-    -- message = message:gsub("CRV%[..%x*]","",1)
-    subtree:add(pfields.crv,crv_data)
-    crv = crv_data
+  local crv_pos = message:find("CRV%[.*%]") or -1
+  -- subtree:add(pfields["crv"],crv_pos):set_generated(true)
+  if crv_pos and crv_pos > 0 then
+    local crv_end = message:find("%]",crv_pos+4)
+    local crv_data = string.sub(message, crv_pos+4,crv_end-1)
+    crv = crv_data;
+    -- subtree:add(pfields["crv"],crv_pos ,crv_data ):set_generated(true)
+    sadd("crv",msg_start+crv_pos+3,crv_end-(crv_pos+4),"string")
+    message = message:gsub("CRV%[..%x*]","",1)
   end
 
   -- check for "TASK[Oxabc]:"
@@ -369,22 +462,47 @@ function p_auerlog_legacy.dissector(buf,pinfo,tree)
       t2c[task] = crv
     else
       if t2c[task] then
-        subtree:add(pfields.crv,t2c[task])
+        subtree:add(pfields["CRV"],t2c[task]):set_generated(true)
       end
     end
   else
     if crv and c2t[crv] then
-      subtree:add(pfields.task,c2t[crv])
+      subtree:add(pfields.task,c2t[crv]):set_generated(true)
+    end
+  end
+
+  -- check for call_id
+  local call_id = message:match(".*call_id%[(.-)%].*")
+  if call_id then
+    if crv then
+      c2i[crv] = call_id
+      i2c[call_id] = crv
+    else
+      if i2c[call_id] then 
+        subtree:add(pfields.crv,i2c[call_id]):set_generated(true)
+      end
+    end
+  else
+    if crv and c2i[crv] then
+      subtree:add(pfields.call_id,c2i[crv]):set_generated(true)
     end
   end
 
   -- remove redundant methodname from Msg
-  if methodname:len() > 3 then
-    message = message:gsub( "^" .. methodname .. ".%d+.","")
-    message = message:gsub( "^" .. methodname ,"")
-    message = message:gsub( methodname ,"(f)")
+  local replace_with
+  if shorten_msg then
+    replace_with = ""
+  else
+    replace_with = "(f)"
   end
 
+  if methodname:len() >= 3 then
+    message = message:gsub( "" .. methodname .. "%(%d+%)[%s%:]+",replace_with)
+    message = message:gsub( "" .. methodname .. "[%s%:]?%d+%s",replace_with)
+    message = message:gsub( "" .. methodname .. "[%s%:]+",replace_with)
+  end
+ 
+  -- clean surplus junk at start of line
   message = message:gsub("^[ :]+","")
 
   -- add remaining message fields
@@ -408,7 +526,7 @@ function p_auerlog_legacy.dissector(buf,pinfo,tree)
 end
 
 local tcp_port = DissectorTable.get("tcp.port")
--- tcp_port:add(42231,p_auerlog_legacy)
+  tcp_port:add(42231,p_auerlog_legacy)
 
 local wtap_encap_table = DissectorTable.get("wtap_encap")
 wtap_encap_table:add(wtap.USER0,p_auerlog_legacy)
