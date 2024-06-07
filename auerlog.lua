@@ -75,16 +75,16 @@ local pfields = {
   dst_port = ProtoField.uint16("tcp.dstport","Destination Port"),
   ip_version = ProtoField.uint16("ip.version","Version"),
   ip_proto = ProtoField.uint8("ip.proto","Protocol"),
-  src_ip6 = ProtoField.ipv6("auerlog.src_addr","Source Address"),
-  dst_ip6 = ProtoField.ipv6("auerlog.dst_addr","Destination Address"),
+  src_ip6 = ProtoField.ipv6("auerlog.src_addr","Source Address",base.HEX, nil),
+  dst_ip6 = ProtoField.ipv6("auerlog.dst_addr","Destination Address",base.HEX, nil),
   src_ip = ProtoField.ipv4("ip.src_addr","Source", base.DEC, nil, "Source Address", "none", nil, "ip.src"),
-  dst_ip = ProtoField.ipv4("ip.dst_addr","Destination", base.DEC, nil, "Destination Address", "none", nil, "ip.dst"),
+  dst_ip = ProtoField.ipv4("ip.dst_addr","Destination Address", base.DEC, nil, "Destination", "none", nil, "ip.dst"),
   crv = ProtoField.string("auerlog.CRV","CRV"),
   task = ProtoField.string("auerlog.TASK","TASK"),
   call_id = ProtoField.string("sip.Call-ID","Call-ID"),
-  unused_srcip = ProtoField.none("auerlog.unused_srcip","Unused SrcIPv4"),
-  unused_dstip = ProtoField.none("auerlog.unused_dstip","Unused DstIPv4"),
-  unused_premsg = ProtoField.none("auerlog.unused","Unused")
+  unused_srcip = ProtoField.none("auerlog.unused_srcip","(Unused SrcIPv4)"),
+  unused_dstip = ProtoField.none("auerlog.unused_dstip","(Unused DstIPv4)"),
+  unused_premsg = ProtoField.none("auerlog.unused","(Unused)")
 }
 
 local efields = {
@@ -195,15 +195,12 @@ function p_auerlog.dissector(buf,pinfo,tree)
   
   local msg_start = 150 
   local msg_len = buf:len() - msg_start - 1
-
+  local base = 38
   local msg_type = buf(0,2):uint()
   sadd("level",2,4,"uint")
-  sadd("category",6,32) 
+  sadd("category",6,32,"string")
+  local msg_category = buf(6,32):string()
   
-  local base = 38
-  
-  
-
   if (msg_type == MSG_TYPE_SIP) then
     local crv
     addIPTree(tree,buf(base+0,38))
@@ -212,7 +209,7 @@ function p_auerlog.dissector(buf,pinfo,tree)
     local sip_data = buf(msg_start,msg_len)
     addSIPTree(tree,sip_data,pinfo)
     local call_id = efields.sip_call_id.list()    
-    print( "SIP-Call-ID: " .. tostring(call_id) )
+    -- print( "SIP-Call-ID: " .. tostring(call_id) )
     if i2c[efields.call_id] then 
       crv = i2c[efields.call_id]
       subtree:add(pfields.crv,crv):set_generated(true)
@@ -229,8 +226,6 @@ function p_auerlog.dissector(buf,pinfo,tree)
     return
   end
 
-  addThreadData(subtree,buf(base+0,40))
-
   if (buf(base+40,1):uint() ~= 0) then
     sadd("classname",base+40,32)
   end
@@ -238,12 +233,33 @@ function p_auerlog.dissector(buf,pinfo,tree)
   sadd("methodname",base+72,32)
   sadd("line",base+104,4,"uint")
   sadd("seqno",base+108,4,"uint")
-  
+
   local methodname = buf(base+72,32):string()
   methodname = methodname:match("[^%z]*")
     
   -- local message,proto_start,proto_len,json_start,json_len
   local message = buf(msg_start,msg_len):string(ENC_UTF_8)
+  
+  if msg_category:match("SYSLOG_DAEMON") then 
+    -- Msg part is formated as "process_name[process_id]: Msg"
+    local my_proc_name 
+    local my_process_len = 0
+    local my_proc_id = "0"
+    local my_skip_len = 0
+    local rest = ""
+    my_proc_name, my_process_len, my_proc_id, my_skip_len, rest = message:match("^(%w+)()%[(%d+)%]:%s()(.*)")
+    -- print ("->" .. my_proc_name .."<- len(" .. my_process_len .. ") ID:" .. my_proc_id .. " Total_len:" .. my_skip_len )
+    if my_skip_len then
+      sadd("procname", msg_start, my_process_len-1, "string")
+      subtree:add(pfields.tgid,math.floor(tonumber(my_proc_id)))
+      msg_start = msg_start + (my_skip_len -1)
+      msg_len = msg_len - (my_skip_len -1)
+      message = buf(msg_start,msg_len):string(ENC_UTF_8)
+    end
+  else
+    addThreadData(subtree,buf(base+0,40))
+  end
+
   -- check for #proto prefix, if found, replace it with a tag
   local protobuf_data = message:match("#proto(.*)")
   if protobuf_data then
@@ -256,7 +272,7 @@ function p_auerlog.dissector(buf,pinfo,tree)
       end
     end
   end
-  
+
   --check for #json prefix // json data, if found, replace it with a tag
   local json_data = message:match("#json({.*}).*")
   if json_data then
@@ -325,8 +341,15 @@ function p_auerlog.dissector(buf,pinfo,tree)
     end
   end
 
-  -- TODO if Category is RESIPROCATE scan Msg for all entries of Call_id in i2c 
-  --      if match is found set CRV and TASK accordingly
+  if msg_category:match("RESIPROCATE") then 
+    for my_id, my_crv in pairs(i2c) do
+      print (my_id, my_crv, message)
+      if string.find( message, my_id ) then
+        subtree:add(pfields.call_id,my_id):set_generated(true)
+        subtree:add(pfields.crv,my_crv):set_generated(true)
+      end
+    end
+  end
 
   -- remove redundant methodname from Msg
   local replace_with
