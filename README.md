@@ -5,7 +5,7 @@ For Wireshark to display data in the auerswald pcap logger format, the correspon
 
 ## Installation
 
-* Install a current version of Wireshark (see "Wireshark Log Format" below)
+* Install a current version of Wireshark (has to be at least 4.0.1, suggested 4.2.X or higher)
 * Download the Wireshark protocol dissector ```auerlog.lua``` from this repository
 * Copy ```auerlog.lua``` to your "Personal Plugins" directory for Wireshark, which can be found under "Help" -> "About Wireshark" -> "Folders" -> "Personal Plugins".
 * Select "Analyze" -> "Reload Lua Plugins" (Ctrl+Shft+L)
