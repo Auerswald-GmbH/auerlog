@@ -17,8 +17,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 --]]
 
-local shorten_msg     = 1
-
 local p_auerlog_legacy = Proto("auerlog_legacy","Auerswald Log Old");
 local p_auerlog = Proto("auerlog","Auerswald Log");
 
@@ -90,8 +88,14 @@ local efields = {
 }
 
 -- load preferences
+p_auerlog.prefs.shorten_msg = Pref.bool("Remove redundant information", true,
+                                    "Remove redundant information for the Msg part so only relevant parts remain in there e.g. file names, function names, etc")
+
 p_auerlog.prefs.link_calls = Pref.bool("Link CRV, Task and Call-ID", true,
                                     "Enable code to create and track linking Information to follow and distinguish multiple calls more effectively")
+
+p_auerlog.prefs.old_type = Pref.bool("Support old logs", false,
+                                    "Register USER0 and USER1. These Protocol IDs were used before before a dedicated ID was assigned. If you need to turn this on to display properly, that system is seriously outdated and needs to be updated! ")
 
 -- add the field to the protocol
 p_auerlog.fields = {}
@@ -231,6 +235,8 @@ function p_auerlog.dissector(buf,pinfo,tree)
   local base = 38
   local offset = 0
   local msg_type = buf(0,2):uint()
+  subtree:add(pfields.unused, buf(0,2)):set_hidden() -- Message Type can be identified by protocol displayed
+
   sadd("level",2,4,"uint")
   sadd("category",6,32,"string")
   local msg_category = buf(6,32):string()
@@ -242,7 +248,7 @@ function p_auerlog.dissector(buf,pinfo,tree)
 	-- unused padding
 	local offset = base+38+40
 	subtree:add(pfields.unused, buf(offset,msg_start-offset )):set_hidden()
-    -- pass rest to sip
+    -- pass rest to sip	
     subtree:add(pfields["methodname"],"SIP"):set_generated(true)
     local sip_data = buf(msg_start,msg_len)
     addSIPTree(tree,sip_data,pinfo)
@@ -337,7 +343,7 @@ function p_auerlog.dissector(buf,pinfo,tree)
 		crv = crv_data;
 		-- subtree:add(pfields["crv"],crv_pos ,crv_data ):set_generated(true)
 		sadd("crv",msg_start+crv_pos+3,crv_end-(crv_pos+4),"string")
-		if shorten_msg then
+		if p_auerlog.prefs.shorten_msg then
 		  message = message:gsub("CRV%[..%x*]","",1)
 		end
 	  end
@@ -346,7 +352,7 @@ function p_auerlog.dissector(buf,pinfo,tree)
 	  local task_data = message:match(".*TASK%[(..%x*)].*")
 	  local task
 	  if task_data then
-		if shorten_msg then
+		if p_auerlog.prefs.shorten_msg then
 		  message = message:gsub("TASK%[..%x*]","",1)
 		end
 		subtree:add(pfields.task,task_data)
@@ -395,7 +401,7 @@ function p_auerlog.dissector(buf,pinfo,tree)
 
   -- remove redundant methodname from Msg
   local replace_with
-  if shorten_msg then
+  if p_auerlog.prefs.shorten_msg then
     replace_with = ""
   else
     replace_with = "(f)"
@@ -555,7 +561,7 @@ function p_auerlog_legacy.dissector(buf,pinfo,tree)
 
   -- remove redundant methodname from Msg
   local replace_with
-  if shorten_msg then
+  if p_auerlog.prefs.shorten_msg then
     replace_with = ""
   else
     replace_with = "(f)"
@@ -593,9 +599,45 @@ end
 local tcp_port = DissectorTable.get("tcp.port")
   tcp_port:add(42231,p_auerlog_legacy)
 
-local wtap_encap_table = DissectorTable.get("wtap_encap")
-wtap_encap_table:add(wtap.USER0,p_auerlog_legacy)
-wtap_encap_table:add(wtap.USER1,p_auerlog)
-if wtap.AUERSWALD_LOG then
-  wtap_encap_table:add(wtap.AUERSWALD_LOG,p_auerlog)
+-- one-time warning guard (module-global)
+local warned_missing_auerswald = false
+
+local function register_encaps()
+  local encap = DissectorTable.get("wtap_encap")
+
+  if wtap and wtap.AUERSWALD_LOG then
+    encap:add(wtap.AUERSWALD_LOG, p_auerlog)   -- native type supported
+  else
+    -- Native type missing
+    if not p_auerlog.prefs.old_type and not warned_missing_auerswald then
+      warned_missing_auerswald = true
+      local msg =
+        "This Wireshark build does not define wtap.AUERSWALD_LOG.\n" ..
+        "Enable 'Support old logs' in Protocol Preferences → Auerlog, " ..
+        "or upgrade Wireshark to a build that includes AUERSWALD_LOG.\n" ..
+		"You will not be able to display current logs!"
+
+      if gui_enabled and gui_enabled() then
+        report_failure(msg)           -- modal dialog in Wireshark GUI
+      else
+        io.stderr:write("[auerlog] "..msg.."\n")  -- tshark / non-GUI
+      end
+    end
+
+    -- If user opted in, register the legacy mapping
+    if p_auerlog.prefs.old_type then
+      encap:add(wtap.USER0, p_auerlog_legacy)
+      encap:add(wtap.USER1, p_auerlog)
+    end
+  end
 end
+
+-- call now (script load)
+register_encaps()
+
+-- and re-run after prefs are changed (e.g., user toggles the checkbox)
+function p_auerlog.prefs_changed()
+  register_encaps()
+end
+
+
