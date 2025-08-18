@@ -85,16 +85,22 @@ If you are not sure which interface to log, or what their names are, you can sta
 wireshark -i TCP@192.168.22.51:42231
 ```
 
+## Wireshark Protocol Preferences
+
+The current disector script auerlog.lua has preferences to optimize the performance by disabling processing of Links between TASK, CRV and sip Call-ID as well as removing redundant data from the MSG column.
+Further you can enable "legacy mode" which allows you to display older pcap Logs that were still using USER0 or USER1 format.
+
 ## Wireshark Log Format
 
 The messages within the pcap are either provided in the old format which uses the **DLT_USER0** (147) or in the new format which uses the **DLT_AUERSWALD_LOG** (296) and temporarily **DLT_USER1** (148).
 All three DLT IDs are supported by the same dissector script.
 
-We received DLT_AUERSWALD_LOG and LINKTYPE_AUERSWALD_LOG on Sept 2. 2022 with the DLT ID 296, it will be a while before the libpcap update is populated everywhere.
-So far only the latest Wireshark branch 4.1 contains support for DLT_AUERSWALD_LOG.
-As of March 2023 you still need the latest Wireshark developer version to dissect logfiles using the DLT_AUERSWALD_LOG.
-Which is the reason why we still use DLT_USER0 and DLT_USER1 in official software releases. However developer or diagnostic builds may contain the DLT_AUERSWALD_LOG.
-Wireshark Developer builds for Windows and OSx can be found on <https://www.wireshark.org/download/automated/>
+We received DLT_AUERSWALD_LOG and LINKTYPE_AUERSWALD_LOG on Sept 2. 2022 with the DLT ID 296, and is fully supported since Wireshark 4.1.
+Up to the middle of 2023 we still used DLT_USER0 and DLT_USER1 in official software releases.
+However developer or diagnostic builds may contain the DLT_AUERSWALD_LOG.
+Wireshark Developer builds for Windows and OSx can be found on <https://www.wireshark.org/download.html>
+Packages for Ubuntu might be found under <https://launchpad.net/~wireshark-dev/+archive/ubuntu/stable>
+Please search the internet for other platforms.
 
 The description for the DLT_AUERSWALD_LOG log format is publicly released and can be found on <https://github.com/Auerswald-GmbH/auerlog/blob/master/auerlog.txt>
 
